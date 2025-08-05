@@ -1,0 +1,12 @@
+[package]
+name = "PPAT"
+version = "1.0.0"
+upgrade_policy = "compatible"
+
+[addresses]
+base = "0xba5e"
+ppat = "0xbba1"
+
+[dependencies]
+AptosTokenObjects = { git = "https://github.com/aptos-labs/aptos-framework.git", rev = "testnet", subdir = "aptos-token-objects" }
+base = { local = "./hooks/base" }
