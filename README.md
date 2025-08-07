@@ -10,6 +10,8 @@ aptos move test --language-version 2.2
 Note: available only on Testnet (Aug 8th 2025)
 
 ```
+aptos init --profile hook_deployer --network=testnet
+
 # base 
 aptos move deploy-object --address-name base --package-dir hooks/base --profile hook_deployer --assume-yes --included-artifacts none --override-size-check
 
