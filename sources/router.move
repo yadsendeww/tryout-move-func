@@ -1,44 +1,85 @@
-module tapp::router {
-    use std::option::{Option, none};
-    use std::signer::address_of;
+module ppat::router {
     use aptos_std::bcs_stream;
-    use aptos_std::bcs_stream::{BCSStream, deserialize_u64, deserialize_address};
+    use aptos_std::bcs_stream::{deserialize_u64};
     use aptos_std::debug::print;
     use aptos_std::ordered_map;
     use aptos_std::ordered_map::OrderedMap;
-    use aptos_framework::object::{create_object, generate_signer, ExtendRef, generate_extend_ref, };
 
-    struct MyFuncPredicate(|u64| u64) has copy, store;
+    #[test_only]
+    use aptos_framework::account::create_signer_for_test;
 
-    struct MyFuncStorage has key {
-        myfunc: MyFuncPredicate,
-        fallback_func: MyFuncPredicate,
+    struct HookRegistry has key {
+        hooks_count: u64,
+        hooks: OrderedMap<u64, address>
     }
 
-    public fun register_myfunc(
-        signer: &signer,
-        f: |u64| u64
+    struct MyFuncPredicate(|u64| u64) has copy, drop, store;
+
+    struct MyFuncV2Predicate(|u64, u64| u64) has copy, drop, store;
+
+    struct FuncStorage<T: copy + drop + store> has key, store {
+        f: T
+    }
+
+    fun init_module(signer: &signer) {
+        move_to(
+            signer,
+            HookRegistry { hooks_count: 0, hooks: ordered_map::new() }
+        );
+    }
+
+    /// hook register its predicate
+    public fun register_predicate(
+        signer: &signer, fn: |u64| u64 has copy + drop + store
     ) {
-        let my_func: |u64| u64 has copy + drop + store =
-            |x: u64| f(x);
-        let fallback_fn: |u64| u64 has copy + drop + store =
-            |x: u64| base::base::my_func(x);
-        move_to(signer, MyFuncStorage {
-            myfunc: MyFuncPredicate(my_func),
-            fallback_func: MyFuncPredicate(fallback_fn),
-        });
+        move_to(signer, FuncStorage { f: MyFuncPredicate(fn) });
     }
 
-    public fun exec_fn(signer: &signer, func_id: u64, arg: u64) acquires MyFuncStorage {
-        let my_func_storage = &MyFuncStorage[address_of(signer)];
-        let my_funcc = my_func_storage.myfunc;
-        let fallback_func = my_func_storage.fallback_func;
+    /// hook register its predicate
+    public fun register_v2_predicate(
+        signer: &signer, fn: |u64, u64| u64 has copy + drop + store
+    ) {
+        move_to(signer, FuncStorage { f: MyFuncV2Predicate(fn) });
+    }
 
-        if (func_id > 0) {
-            print(&my_funcc(arg));
-        } else {
-            print(&fallback_func(arg));
+    /// admin approve hook
+    public fun register_hook(hook_addr: address) acquires HookRegistry {
+        let reg = &mut HookRegistry[@ppat];
+        let hook_type = reg.hooks_count;
+        reg.hooks.add(hook_type, hook_addr);
+        reg.hooks_count += 1;
+    }
+
+    /// hook call via router
+    public entry fun exec_my_func(
+        _signer: &signer, hook_type: u64, args: vector<u8>
+    ) acquires FuncStorage, HookRegistry {
+        let reg = &HookRegistry[@ppat];
+        let hook_addr = *reg.hooks.borrow(&hook_type);
+
+        let stream = &mut bcs_stream::new(args);
+
+        // hooks could have different function signatures
+        // backward compatible betweens: ... > v2 > v1
+        if (exists<FuncStorage<MyFuncV2Predicate>>(hook_addr)) {
+            let arg0 = deserialize_u64(stream);
+            let arg1 = deserialize_u64(stream);
+            let my_func_predicate = &FuncStorage<MyFuncV2Predicate>[hook_addr];
+            let my_func = my_func_predicate.f;
+            print(&my_func(arg0, arg1));
+            return
+        } else if (exists<FuncStorage<MyFuncPredicate>>(hook_addr)) {
+            let arg = deserialize_u64(stream);
+            let my_func_predicate = &FuncStorage<MyFuncPredicate>[hook_addr];
+            let my_func = my_func_predicate.f;
+            print(&my_func(arg));
+            return
         }
     }
 
+    #[test_only]
+    public fun init_module_for_testing() {
+        init_module(&create_signer_for_test(@ppat));
+    }
 }
+
